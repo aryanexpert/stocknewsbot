@@ -604,6 +604,9 @@ def load_equity_list():
 # ============================================================
 # NSE ANNOUNCEMENTS
 # ============================================================
+# ============================================================
+# NSE ANNOUNCEMENTS
+# ============================================================
 
 def get_nse_announcements():
 
@@ -656,6 +659,29 @@ def get_nse_announcements():
             len(records)
         )
 
+        # ----------------------------------------------------
+        # DEBUG: FIRST NSE RECORD
+        # ----------------------------------------------------
+
+        if records:
+
+            print("FIRST NSE RECORD:")
+            print(records[0])
+
+            # ------------------------------------------------
+            # DEBUG: SICAL RECORD
+            # ------------------------------------------------
+
+            for x in records:
+
+                if (
+                    "Sical" in str(x)
+                    or "SICALLOG" in str(x)
+                ):
+
+                    print("SICAL RECORD:")
+                    print(x)
+
         return records
 
     except Exception as e:
@@ -666,7 +692,6 @@ def get_nse_announcements():
         )
 
         return None
-
 
 # ============================================================
 # NEWS CATEGORIES
