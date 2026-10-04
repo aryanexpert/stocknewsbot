@@ -6,13 +6,12 @@ from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote_plus
-from xml.etree import ElementTree as ET
 
 import requests
 
 
 # ============================================================
-# SETTINGS
+# CONFIGURATION
 # ============================================================
 
 IST = ZoneInfo("Asia/Kolkata")
@@ -26,20 +25,15 @@ YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/{}.NS"
 TELEGRAM_URL = "https://api.telegram.org/bot{}/sendMessage"
 
 MAX_FINAL_STOCKS = 7
-MAX_PRICE_CHECKS = 30
 
-# News can be up to 48 hours old
+# Rolling window from current IST time
 MAX_NEWS_AGE_HOURS = 48
 
-REQUEST_TIMEOUT = 12
+# Number of best candidates that will receive price checking
+MAX_PRICE_CHECKS = 25
 
-# Show rejected news in terminal
-SHOW_FILTER_DIAGNOSTICS = True
+REQUEST_TIMEOUT = 15
 
-
-# ============================================================
-# HEADERS
-# ============================================================
 
 HEADERS = {
     "User-Agent": (
@@ -49,114 +43,94 @@ HEADERS = {
     ),
     "Accept": "application/json,text/plain,*/*",
     "Accept-Language": "en-US,en;q=0.9",
-    "Referer": "https://www.nseindia.com/",
-    "Origin": "https://www.nseindia.com",
+    "Referer": NSE_HOME + "/",
+    "Origin": NSE_HOME,
     "Connection": "keep-alive",
 }
 
 
 # ============================================================
-# NEWS IMPACT KEYWORDS
+# HIGH IMPACT NEWS KEYWORDS
 # ============================================================
 
-IMPACT_POINTS = {
-    "order win": 25,
-    "large order": 25,
-    "order": 18,
-    "contract": 18,
-    "work order": 20,
+VERY_HIGH_IMPACT = {
+    "order win": 30,
+    "large order": 30,
+    "major order": 30,
+    "order worth": 28,
+    "contract worth": 28,
+    "acquisition": 28,
+    "acquires": 28,
+    "acquired": 28,
+    "merger": 28,
+    "takeover": 30,
+    "strategic investment": 25,
+    "commercial production": 25,
+    "commercial operations": 25,
+    "regulatory approval": 25,
+    "final approval": 25,
+    "drug approval": 28,
+    "usfda": 28,
+    "us fda": 28,
+}
 
-    "acquisition": 18,
-    "merger": 18,
-    "stake acquisition": 18,
-    "stake": 10,
+HIGH_IMPACT = {
+    "order": 20,
+    "contract": 20,
+    "new project": 18,
+    "project win": 22,
+    "business win": 22,
+    "capacity expansion": 20,
+    "capacity": 14,
+    "expansion": 14,
+    "new plant": 18,
+    "plant expansion": 20,
+    "production": 13,
+    "fund raising": 17,
+    "fundraising": 17,
+    "qip": 18,
+    "preferential issue": 18,
+    "preferential": 15,
+    "investment": 13,
+    "joint venture": 18,
+    "partnership": 13,
+    "stake acquisition": 22,
+    "stake purchase": 22,
+    "buyback": 18,
+    "guidance": 16,
+    "revenue growth": 16,
+    "profit growth": 18,
+    "ebitda growth": 18,
+    "turnaround": 18,
+}
 
-    "fund raise": 14,
-    "fundraising": 14,
-    "fund raising": 14,
-    "qip": 15,
-    "preferential": 13,
-
-    "regulatory approval": 18,
-    "approval": 13,
-    "approved": 13,
-
-    "commercial production": 18,
-    "production": 8,
-
-    "capacity expansion": 16,
-    "capacity": 10,
-    "expansion": 9,
-    "plant": 7,
-    "new facility": 12,
-
-    "results": 10,
+MEDIUM_POSITIVE = {
+    "approval": 12,
+    "approved": 12,
     "profit": 10,
-    "profit growth": 15,
     "revenue": 8,
-    "revenue growth": 12,
     "ebitda": 9,
-    "guidance": 10,
-
-    "dividend": 7,
-    "buyback": 12,
-    "upgrade": 8,
-
-    "wins": 18,
-    "won": 18,
-
-    "partnership": 10,
-    "joint venture": 12,
-    "investment": 9,
+    "dividend": 8,
+    "results": 10,
+    "growth": 8,
     "capex": 10,
-    "new project": 12,
+    "commissioned": 12,
+    "commissioning": 12,
+    "new facility": 12,
+    "new order": 20,
+    "won": 18,
+    "wins": 18,
 }
 
 
 # ============================================================
-# POSITIVE / NEGATIVE WORDS
+# NEGATIVE NEWS
 # ============================================================
-
-POSITIVE_WORDS = {
-    "order",
-    "order win",
-    "large order",
-    "contract",
-    "work order",
-    "approval",
-    "approved",
-    "commission",
-    "capacity",
-    "capacity expansion",
-    "expansion",
-    "profit",
-    "profit growth",
-    "revenue growth",
-    "ebitda",
-    "fund raise",
-    "fundraising",
-    "fund raising",
-    "qip",
-    "acquisition",
-    "buyback",
-    "dividend",
-    "upgrade",
-    "wins",
-    "won",
-    "partnership",
-    "joint venture",
-    "investment",
-    "capex",
-    "new project",
-    "commercial production",
-}
-
 
 NEGATIVE_WORDS = {
     "fraud",
     "default",
     "downgrade",
-    "rating downgrade",
     "loss",
     "penalty",
     "fine",
@@ -172,56 +146,49 @@ NEGATIVE_WORDS = {
     "bankruptcy",
     "litigation",
     "warning",
-    "notice",
     "delay",
     "debt restructuring",
-}
-
-
-IRRELEVANT_WORDS = {
-    "market outlook",
-    "sensex",
-    "nifty",
-    "technical",
-    "should you buy",
-    "stock market today",
-    "top stocks",
-    "stocks to watch",
-    "brokerage target",
-    "share market today",
-    "intraday picks",
-    "multibagger",
+    "rating downgrade",
+    "fire incident",
+    "fire broke",
+    "fire accident",
+    "accident",
+    "injury",
+    "casualty",
 }
 
 
 # ============================================================
-# GENERIC COMPANY WORDS
+# LOW IMPACT / ROUTINE NEWS
 # ============================================================
 
-GENERIC_WORDS = {
-    "LIMITED",
-    "LIMIT",
-    "INDIA",
-    "INDIAN",
-    "CORPORATION",
-    "CORP",
-    "COMPANY",
-    "LTD",
-    "SERVICES",
-    "ENTERPRISES",
-    "INDUSTRIES",
-    "HOLDINGS",
-    "TECHNOLOGIES",
-    "TECHNOLOGY",
-    "PRIVATE",
-    "PVT",
-    "PUBLIC",
-    "GROUP",
+ROUTINE_WORDS = {
+    "trading window",
+    "shareholders meeting",
+    "annual general meeting",
+    "agm",
+    "change in director",
+    "change in directors",
+    "change in management",
+    "appointment of director",
+    "appointment of directors",
+    "secretarial audit",
+    "scrutinizer",
+    "postal ballot",
+    "investor presentation",
+    "credit rating",
+    "newspaper publication",
+    "compliance certificate",
+    "certificate",
+    "business responsibility",
+    "related party",
+    "board meeting intimation",
+    "meeting intimation",
 }
 
 
 # ============================================================
-# GLOBAL CACHE
+# PRICE CACHE
 # ============================================================
 
 PRICE_CACHE = {}
@@ -232,7 +199,6 @@ PRICE_CACHE = {}
 # ============================================================
 
 def clean_text(value):
-
     if value is None:
         return ""
 
@@ -244,31 +210,37 @@ def clean_text(value):
 
 
 def normalize_text(value):
-
     value = clean_text(value).upper()
-
-    value = re.sub(
-        r"[^A-Z0-9& ]+",
-        " ",
-        value
-    )
-
-    value = re.sub(
-        r"\s+",
-        " ",
-        value
-    )
+    value = re.sub(r"[^A-Z0-9& ]+", " ", value)
+    value = re.sub(r"\s+", " ", value)
 
     return value.strip()
 
 
 def now_ist():
-
     return datetime.now(IST)
 
 
+def format_news_age(dt):
+    if not dt:
+        return "Unknown"
+
+    seconds = int((now_ist() - dt).total_seconds())
+
+    if seconds < 0:
+        return "Future/Unknown"
+
+    hours = seconds // 3600
+    minutes = (seconds % 3600) // 60
+
+    if hours > 0:
+        return f"{hours}h {minutes}m"
+
+    return f"{minutes}m"
+
+
 # ============================================================
-# NSE EQUITY LIST
+# NSE STOCK LIST
 # ============================================================
 
 def get_nse_symbols():
@@ -276,7 +248,6 @@ def get_nse_symbols():
     print("Downloading NSE equity list...")
 
     try:
-
         response = requests.get(
             NSE_EQUITY_LIST,
             headers=HEADERS,
@@ -316,9 +287,7 @@ def get_nse_symbols():
                 series_index = i
 
         if symbol_index is None:
-
             print("SYMBOL column not found.")
-
             return []
 
         stocks = []
@@ -330,122 +299,132 @@ def get_nse_symbols():
             if len(parts) <= symbol_index:
                 continue
 
-            symbol = (
-                parts[symbol_index]
-                .strip()
-                .upper()
-            )
+            symbol = parts[symbol_index].strip().upper()
 
             series = ""
 
-            if (
-                series_index is not None
-                and len(parts) > series_index
-            ):
-                series = (
-                    parts[series_index]
-                    .strip()
-                    .upper()
-                )
+            if series_index is not None and len(parts) > series_index:
+                series = parts[series_index].strip().upper()
 
             if series and series != "EQ":
                 continue
 
             company_name = ""
 
-            if (
-                name_index is not None
-                and len(parts) > name_index
-            ):
-                company_name = (
-                    parts[name_index]
-                    .strip()
-                )
+            if name_index is not None and len(parts) > name_index:
+                company_name = parts[name_index].strip()
 
             if symbol:
 
                 stocks.append({
                     "symbol": symbol,
-                    "name": company_name,
-                    "name_normalized": normalize_text(
-                        company_name
-                    ),
+                    "name": company_name
                 })
 
-        print(
-            f"NSE symbols: {len(stocks)}"
-        )
+        print(f"NSE symbols loaded: {len(stocks)}")
 
         return stocks
 
     except Exception as e:
 
-        print(
-            "NSE equity list error:",
-            str(e)
-        )
+        print("NSE equity list error:", type(e).__name__, str(e))
 
         return []
 
 
 # ============================================================
-# BUILD OPTIMIZED COMPANY LOOKUP
+# FAST COMPANY LOOKUP
 # ============================================================
 
 def build_company_lookup(stocks):
 
-    print("Building optimized company lookup...")
+    print("Building fast company lookup...")
 
-    symbol_lookup = {}
-    exact_name_lookup = {}
-    token_lookup = {}
+    symbol_set = set()
+    name_lookup = {}
+    word_lookup = {}
+
+    ignored_words = {
+        "LIMITED",
+        "LIMIT",
+        "INDIA",
+        "INDIAN",
+        "CORPORATION",
+        "CORP",
+        "COMPANY",
+        "LTD",
+        "SERVICES",
+        "ENTERPRISES",
+        "INDUSTRIES",
+        "HOLDINGS",
+        "TECHNOLOGIES",
+        "TECHNOLOGY",
+        "PRIVATE",
+        "PVT",
+    }
 
     for stock in stocks:
 
         symbol = stock["symbol"]
-        name = stock["name_normalized"]
+        name = normalize_text(stock["name"])
 
-        # Direct symbol lookup
-        if symbol:
-            symbol_lookup[symbol] = symbol
+        symbol_set.add(symbol)
 
-        # Exact company name lookup
         if name:
-            exact_name_lookup[name] = symbol
+            name_lookup[name] = symbol
 
-        # Meaningful company tokens
-        words = name.split()
+            for word in name.split():
 
-        for word in words:
+                if len(word) < 5:
+                    continue
 
-            if len(word) < 4:
-                continue
+                if word in ignored_words:
+                    continue
 
-            if word in GENERIC_WORDS:
-                continue
-
-            token_lookup.setdefault(
-                word,
-                set()
-            ).add(symbol)
+                word_lookup.setdefault(word, set()).add(symbol)
 
     print(
-        f"Symbol lookup: {len(symbol_lookup)}"
-    )
-
-    print(
-        f"Company lookup: {len(exact_name_lookup)}"
-    )
-
-    print(
-        f"Company tokens: {len(token_lookup)}"
+        f"Symbols: {len(symbol_set)} | "
+        f"Company names: {len(name_lookup)} | "
+        f"Words: {len(word_lookup)}"
     )
 
     return {
-        "symbol": symbol_lookup,
-        "name": exact_name_lookup,
-        "token": token_lookup,
+        "symbols": symbol_set,
+        "names": name_lookup,
+        "words": word_lookup,
     }
+
+
+# ============================================================
+# NSE SESSION
+# ============================================================
+
+def create_nse_session():
+
+    session = requests.Session()
+
+    session.headers.update(HEADERS)
+
+    try:
+        response = session.get(
+            NSE_HOME,
+            timeout=REQUEST_TIMEOUT
+        )
+
+        print(
+            "NSE homepage response:",
+            response.status_code
+        )
+
+    except Exception as e:
+
+        print(
+            "NSE homepage warning:",
+            type(e).__name__
+        )
+
+    return session
 
 
 # ============================================================
@@ -455,49 +434,20 @@ def build_company_lookup(stocks):
 def get_nse_announcements():
 
     print("\n----- NSE ANNOUNCEMENTS -----")
-    print("Getting NSE corporate announcements...")
 
     for attempt in range(1, 4):
 
-        print(
-            f"NSE announcement attempt "
-            f"{attempt}/3..."
-        )
+        print(f"NSE announcement attempt {attempt}/3...")
 
-        session = requests.Session()
-
-        session.headers.update(
-            HEADERS
-        )
+        session = create_nse_session()
 
         try:
-
-            try:
-
-                home = session.get(
-                    NSE_HOME,
-                    timeout=12
-                )
-
-                print(
-                    "NSE homepage response:",
-                    home.status_code
-                )
-
-            except Exception as e:
-
-                print(
-                    "NSE homepage warning:",
-                    type(e).__name__
-                )
 
             time.sleep(1)
 
             response = session.get(
                 NSE_ANNOUNCEMENTS,
-                params={
-                    "index": "equities"
-                },
+                params={"index": "equities"},
                 timeout=20
             )
 
@@ -514,6 +464,11 @@ def get_nse_announcements():
 
             if response.status_code != 200:
 
+                print(
+                    "NSE returned HTTP:",
+                    response.status_code
+                )
+
                 time.sleep(2)
 
                 continue
@@ -522,9 +477,7 @@ def get_nse_announcements():
 
             if not raw:
 
-                print(
-                    "NSE returned EMPTY response."
-                )
+                print("NSE returned EMPTY response.")
 
                 time.sleep(2)
 
@@ -544,9 +497,7 @@ def get_nse_announcements():
                     "First 300 characters:"
                 )
 
-                print(
-                    raw[:300]
-                )
+                print(raw[:300])
 
                 time.sleep(2)
 
@@ -554,10 +505,7 @@ def get_nse_announcements():
 
             if isinstance(data, dict):
 
-                records = data.get(
-                    "data",
-                    []
-                )
+                records = data.get("data", [])
 
             elif isinstance(data, list):
 
@@ -567,10 +515,7 @@ def get_nse_announcements():
 
                 records = []
 
-            if not isinstance(
-                records,
-                list
-            ):
+            if not isinstance(records, list):
 
                 print(
                     "Unexpected NSE data format."
@@ -585,19 +530,13 @@ def get_nse_announcements():
                 len(records)
             )
 
-            if not records:
+            if records:
 
-                time.sleep(2)
-
-                continue
-
-            return records
+                return records
 
         except requests.exceptions.Timeout:
 
-            print(
-                "NSE request timed out."
-            )
+            print("NSE request timed out.")
 
         except requests.exceptions.RequestException as e:
 
@@ -616,20 +555,18 @@ def get_nse_announcements():
 
         time.sleep(2)
 
-    print(
-        "Could not get NSE announcements."
-    )
+    print("Could not get NSE announcements.")
 
     return []
 
 
 # ============================================================
-# DATE PARSER
+# DATE/TIME PARSER
 # ============================================================
 
 def parse_news_datetime(item):
 
-    fields = [
+    possible_fields = [
         "an_dt",
         "broadcastDate",
         "sort_date",
@@ -638,7 +575,7 @@ def parse_news_datetime(item):
         "timestamp",
     ]
 
-    for field in fields:
+    for field in possible_fields:
 
         value = item.get(field)
 
@@ -647,46 +584,61 @@ def parse_news_datetime(item):
 
         value = str(value).strip()
 
+        # ISO format
         try:
 
             dt = datetime.fromisoformat(
-                value.replace(
-                    "Z",
-                    "+00:00"
-                )
+                value.replace("Z", "+00:00")
             )
 
             if dt.tzinfo is None:
-                dt = dt.replace(
-                    tzinfo=IST
-                )
+                dt = dt.replace(tzinfo=IST)
 
             return dt.astimezone(IST)
 
         except Exception:
             pass
 
+        # RFC email format
         try:
 
-            dt = parsedate_to_datetime(
-                value
-            )
+            dt = parsedate_to_datetime(value)
 
             if dt.tzinfo is None:
-                dt = dt.replace(
-                    tzinfo=IST
-                )
+                dt = dt.replace(tzinfo=IST)
 
             return dt.astimezone(IST)
 
         except Exception:
             pass
+
+        # NSE common formats
+        formats = [
+            "%d-%b-%Y %H:%M:%S",
+            "%d-%m-%Y %H:%M:%S",
+            "%d-%b-%Y %H:%M",
+            "%d-%m-%Y %H:%M",
+        ]
+
+        for fmt in formats:
+
+            try:
+
+                dt = datetime.strptime(
+                    value,
+                    fmt
+                )
+
+                return dt.replace(tzinfo=IST)
+
+            except Exception:
+                pass
 
     return None
 
 
 # ============================================================
-# FRESH NEWS
+# FRESHNESS
 # ============================================================
 
 def is_fresh_news(item):
@@ -701,25 +653,23 @@ def is_fresh_news(item):
     if age.total_seconds() < 0:
         return True
 
-    return (
-        age <= timedelta(
-            hours=MAX_NEWS_AGE_HOURS
-        )
+    return age <= timedelta(
+        hours=MAX_NEWS_AGE_HOURS
     )
 
 
 # ============================================================
-# GET FULL ANNOUNCEMENT TEXT
+# ANNOUNCEMENT TEXT
 # ============================================================
 
 def announcement_text(item):
 
     fields = [
-        "desc",
         "subject",
+        "desc",
         "details",
-        "attchmntText",
         "description",
+        "attchmntText",
         "headline",
     ]
 
@@ -730,186 +680,134 @@ def announcement_text(item):
         value = item.get(field)
 
         if value:
-            values.append(
-                clean_text(value)
-            )
 
-    # Remove repeated text
-    result = " ".join(values)
+            cleaned = clean_text(value)
 
-    return result.strip()
+            if cleaned:
+                values.append(cleaned)
+
+    # Remove duplicate pieces
+    final_parts = []
+
+    seen = set()
+
+    for value in values:
+
+        key = normalize_text(value)
+
+        if key in seen:
+            continue
+
+        seen.add(key)
+
+        final_parts.append(value)
+
+    return " ".join(final_parts)
 
 
 # ============================================================
-# GET TITLE
+# SUMMARY
 # ============================================================
 
-def get_news_title(item):
+def build_news_summary(item, max_len=360):
 
-    title = (
+    subject = clean_text(
         item.get("subject")
-        or item.get("headline")
         or item.get("desc")
-        or item.get("description")
+        or item.get("headline")
         or ""
     )
 
-    title = clean_text(title)
-
-    if len(title) > 250:
-
-        title = title[:247] + "..."
-
-    return title
-
-
-# ============================================================
-# RELEVANCE CHECK
-# ============================================================
-
-def check_relevance(text):
-
-    text_lower = text.lower()
-
-    irrelevant_count = 0
-
-    for word in IRRELEVANT_WORDS:
-
-        if word in text_lower:
-            irrelevant_count += 1
-
-    # If heavily dominated by market commentary
-    if irrelevant_count >= 2:
-
-        return False, "Market/technical commentary"
-
-    positive_found = any(
-        keyword in text_lower
-        for keyword in IMPACT_POINTS
+    details = clean_text(
+        item.get("details")
+        or item.get("description")
+        or item.get("attchmntText")
+        or ""
     )
 
-    negative_found = any(
-        keyword in text_lower
-        for keyword in NEGATIVE_WORDS
-    )
+    if details:
 
-    if not positive_found and not negative_found:
-
-        return False, "No stock-moving event keyword"
-
-    return True, "Relevant"
-
-
-# ============================================================
-# SCORE NEWS
-# ============================================================
-
-def score_news(text):
-
-    text_lower = text.lower()
-
-    score = 0
-
-    matched_positive = []
-    matched_negative = []
-
-    for keyword, points in IMPACT_POINTS.items():
-
-        if keyword in text_lower:
-
-            score += points
-
-            matched_positive.append(
-                keyword
-            )
-
-    # Positive bonus
-    positive_count = 0
-
-    for word in POSITIVE_WORDS:
-
-        if word in text_lower:
-            positive_count += 1
-
-    score += min(
-        positive_count * 3,
-        15
-    )
-
-    # Negative penalty
-    for word in NEGATIVE_WORDS:
-
-        if word in text_lower:
-
-            score -= 20
-
-            matched_negative.append(
-                word
-            )
-
-    # Irrelevant penalty
-    for word in IRRELEVANT_WORDS:
-
-        if word in text_lower:
-
-            score -= 8
-
-    # Determine sentiment
-    if matched_negative and score < 15:
-
-        sentiment = "NEGATIVE"
-
-    elif matched_negative and not matched_positive:
-
-        sentiment = "NEGATIVE"
-
-    elif matched_positive:
-
-        sentiment = "POSITIVE"
+        text = details
 
     else:
 
-        sentiment = "NEUTRAL"
+        text = announcement_text(item)
 
-    # Impact
-    if score >= 30:
+    text = clean_text(text)
 
-        impact = "HIGH"
+    if not text:
+        return subject
 
-    elif score >= 20:
+    # Remove repeated subject from beginning
+    if subject:
 
-        impact = "MEDIUM"
+        normalized_text = normalize_text(text)
+        normalized_subject = normalize_text(subject)
 
-    elif score >= 10:
+        if normalized_text.startswith(
+            normalized_subject
+        ):
 
-        impact = "LOW"
+            text = text[len(subject):].strip(
+                " :-–—."
+            )
 
-    else:
+    if not text:
+        return subject
 
-        impact = "VERY LOW"
+    # Try sentence based summary
+    sentences = re.split(
+        r"(?<=[.!?])\s+",
+        text
+    )
 
-    return {
-        "score": score,
-        "positive": matched_positive,
-        "negative": matched_negative,
-        "sentiment": sentiment,
-        "impact": impact,
-    }
+    summary = ""
+
+    for sentence in sentences:
+
+        sentence = sentence.strip()
+
+        if not sentence:
+            continue
+
+        candidate = (
+            summary + " " + sentence
+        ).strip()
+
+        if len(candidate) <= max_len:
+
+            summary = candidate
+
+        else:
+
+            break
+
+    if summary:
+        return summary
+
+    # Hard truncate
+    shortened = text[:max_len]
+
+    if " " in shortened:
+        shortened = shortened.rsplit(
+            " ",
+            1
+        )[0]
+
+    return shortened + "..."
 
 
 # ============================================================
-# FAST STOCK IDENTIFICATION
+# STOCK IDENTIFICATION
 # ============================================================
 
 def identify_stock_fast(
     item,
+    stocks,
     lookup
 ):
 
-    # --------------------------------------------------------
-    # STEP 1: Direct NSE symbol fields
-    # --------------------------------------------------------
-
+    # 1. Direct NSE symbol fields
     possible_fields = [
         "symbol",
         "symbolName",
@@ -924,666 +822,149 @@ def identify_stock_fast(
         if not value:
             continue
 
-        symbol = (
-            str(value)
-            .strip()
-            .upper()
-        )
+        value = str(value).strip().upper()
 
-        if symbol in lookup["symbol"]:
+        if value in lookup["symbols"]:
+            return value
 
-            return symbol
+    text = announcement_text(item)
 
-    # --------------------------------------------------------
-    # STEP 2: Announcement text
-    # --------------------------------------------------------
+    normalized = normalize_text(text)
 
-    text = normalize_text(
-        announcement_text(item)
-    )
-
-    if not text:
-        return None
-
-    # --------------------------------------------------------
-    # STEP 3: Exact company name
-    # --------------------------------------------------------
-
-    for company_name, symbol in lookup["name"].items():
-
-        if len(company_name) >= 8:
-
-            if company_name in text:
-
-                return symbol
-
-    # --------------------------------------------------------
-    # STEP 4: Token based matching
-    # --------------------------------------------------------
-
-    words = set(text.split())
-
-    possible_matches = {}
+    # 2. Exact symbol from words
+    words = set(normalized.split())
 
     for word in words:
 
-        if len(word) < 5:
+        if word in lookup["symbols"]:
+            return word
+
+    # 3. Exact company name
+    for company_name, symbol in lookup["names"].items():
+
+        if len(company_name) >= 8:
+
+            if company_name in normalized:
+                return symbol
+
+    # 4. Unique company keyword
+    for word in words:
+
+        if word not in lookup["words"]:
             continue
 
-        symbols = lookup["token"].get(
-            word
-        )
+        possible_symbols = lookup["words"][word]
 
-        if not symbols:
-            continue
+        if len(possible_symbols) == 1:
 
-        for symbol in symbols:
-
-            possible_matches[symbol] = (
-                possible_matches.get(
-                    symbol,
-                    0
-                ) + 1
+            return next(
+                iter(possible_symbols)
             )
-
-    if not possible_matches:
-
-        return None
-
-    # Require at least one meaningful token.
-    # If multiple companies match, choose the one
-    # with the highest number of matching tokens.
-
-    best_symbol = max(
-        possible_matches,
-        key=possible_matches.get
-    )
-
-    best_count = possible_matches[
-        best_symbol
-    ]
-
-    # Single distinctive token is acceptable
-    if best_count >= 1:
-
-        return best_symbol
 
     return None
 
 
 # ============================================================
-# NEWS SUMMARY GENERATOR
+# ROUTINE NEWS CHECK
 # ============================================================
 
-def generate_news_summary(
-    text,
-    scoring
-):
+def routine_news(text):
 
-    clean = clean_text(text)
+    text_lower = text.lower()
 
-    lower = clean.lower()
+    matches = []
 
-    positive = scoring["positive"]
-    negative = scoring["negative"]
+    for word in ROUTINE_WORDS:
 
-    # --------------------------------------------------------
-    # EVENT TYPE
-    # --------------------------------------------------------
+        if word in text_lower:
+            matches.append(word)
 
-    if (
-        "order" in lower
-        or "contract" in lower
-        or "work order" in lower
-    ):
-
-        summary = (
-            "The company has reported a new order/"
-            "contract or business win."
-        )
-
-        why = (
-            "The development may improve order visibility "
-            "and future revenue prospects."
-        )
-
-    elif (
-        "acquisition" in lower
-        or "merger" in lower
-    ):
-
-        summary = (
-            "The company has announced an acquisition "
-            "or merger-related development."
-        )
-
-        why = (
-            "The transaction could change the company's "
-            "business scale, assets or growth profile."
-        )
-
-    elif (
-        "stake" in lower
-        or "investment" in lower
-    ):
-
-        summary = (
-            "A significant stake/investment-related "
-            "corporate development has been announced."
-        )
-
-        why = (
-            "A material stake or investment can affect "
-            "ownership structure and investor sentiment."
-        )
-
-    elif (
-        "qip" in lower
-        or "fund raise" in lower
-        or "fundraising" in lower
-        or "preferential" in lower
-    ):
-
-        summary = (
-            "The company has announced a fund-raising "
-            "or capital-raising exercise."
-        )
-
-        why = (
-            "Fresh capital can support expansion or "
-            "reduce funding constraints, while dilution "
-            "may also need to be considered."
-        )
-
-    elif (
-        "approval" in lower
-        or "approved" in lower
-    ):
-
-        summary = (
-            "The company has received or announced "
-            "a regulatory/business approval."
-        )
-
-        why = (
-            "Approval can remove a regulatory hurdle "
-            "and potentially enable the related business activity."
-        )
-
-    elif (
-        "capacity" in lower
-        or "expansion" in lower
-        or "plant" in lower
-        or "new facility" in lower
-    ):
-
-        summary = (
-            "The company has announced a capacity, "
-            "plant or business expansion."
-        )
-
-        why = (
-            "Additional capacity may support future "
-            "production and revenue growth."
-        )
-
-    elif (
-        "commercial production" in lower
-        or "production" in lower
-    ):
-
-        summary = (
-            "The company has reported a production-related "
-            "milestone or commercial production update."
-        )
-
-        why = (
-            "Commercial production can indicate progress "
-            "toward revenue generation from the project."
-        )
-
-    elif (
-        "profit" in lower
-        or "revenue" in lower
-        or "ebitda" in lower
-        or "results" in lower
-    ):
-
-        summary = (
-            "The company has reported a financial/results "
-            "or business-performance update."
-        )
-
-        why = (
-            "Profit, revenue and EBITDA trends can affect "
-            "earnings expectations and market sentiment."
-        )
-
-    elif negative:
-
-        summary = (
-            "The company has reported a potentially "
-            "negative corporate or regulatory development."
-        )
-
-        why = (
-            "The development may affect investor sentiment "
-            "and the company's business outlook."
-        )
-
-    else:
-
-        summary = (
-            "The company has reported a material "
-            "corporate development."
-        )
-
-        why = (
-            "The announcement may influence short-term "
-            "market sentiment depending on its financial impact."
-        )
-
-    # --------------------------------------------------------
-    # ADD SPECIFIC KEYWORDS
-    # --------------------------------------------------------
-
-    if positive:
-
-        triggers = ", ".join(
-            positive[:4]
-        )
-
-        summary += (
-            f" Key trigger: {triggers}."
-        )
-
-    if negative:
-
-        negatives = ", ".join(
-            negative[:3]
-        )
-
-        summary += (
-            f" Negative factors mentioned: {negatives}."
-        )
-
-    return summary, why
+    return matches
 
 
 # ============================================================
-# PROCESS ANNOUNCEMENTS
+# IMPACT SCORING
 # ============================================================
 
-def process_announcements(
-    records,
-    stocks
-):
+def calculate_news_score(text):
 
-    print(
-        f"\nProcessing {len(records)} "
-        f"NSE announcements..."
+    text_lower = text.lower()
+
+    score = 0
+
+    matched = []
+    negative = []
+    routine = []
+
+    # Very high impact
+    for keyword, points in VERY_HIGH_IMPACT.items():
+
+        if keyword in text_lower:
+
+            score += points
+            matched.append(keyword)
+
+    # High impact
+    for keyword, points in HIGH_IMPACT.items():
+
+        if keyword in text_lower:
+
+            score += points
+            matched.append(keyword)
+
+    # Medium positive
+    for keyword, points in MEDIUM_POSITIVE.items():
+
+        if keyword in text_lower:
+
+            score += points
+            matched.append(keyword)
+
+    # Positive diversity bonus
+    unique_positive = len(set(matched))
+
+    score += min(
+        unique_positive * 2,
+        12
     )
 
-    lookup = build_company_lookup(
-        stocks
-    )
+    # Negative news
+    for word in NEGATIVE_WORDS:
 
-    candidates = []
+        if word in text_lower:
 
-    fresh_count = 0
-    relevant_count = 0
-    identified_count = 0
+            negative.append(word)
 
-    reject_reasons = {}
+            score -= 25
 
-    seen = set()
+    # Routine news penalty
+    routine = routine_news(text)
 
-    # --------------------------------------------------------
-    # Sort by newest first
-    # --------------------------------------------------------
+    if routine:
 
-    processed = []
-
-    for item in records:
-
-        if not isinstance(item, dict):
-            continue
-
-        if not is_fresh_news(item):
-            continue
-
-        fresh_count += 1
-
-        dt = parse_news_datetime(
-            item
+        score -= min(
+            len(routine) * 18,
+            45
         )
 
-        if dt is None:
-
-            dt = datetime.min.replace(
-                tzinfo=IST
-            )
-
-        processed.append(
-            (
-                dt,
-                item
-            )
-        )
-
-    processed.sort(
-        key=lambda x: x[0],
-        reverse=True
-    )
-
-    print(
-        f"Fresh announcements: "
-        f"{fresh_count}"
-    )
-
-    # --------------------------------------------------------
-    # Process
-    # --------------------------------------------------------
-
-    for index, (_, item) in enumerate(
-        processed,
-        start=1
-    ):
-
-        text_value = announcement_text(
-            item
-        )
-
-        title = get_news_title(
-            item
-        )
-
-        # No text
-        if not text_value:
-
-            reason = "Empty announcement"
-
-            reject_reasons[reason] = (
-                reject_reasons.get(
-                    reason,
-                    0
-                ) + 1
-            )
-
-            if SHOW_FILTER_DIAGNOSTICS:
-
-                print(
-                    f"[FILTERED] {title} | "
-                    f"{reason}"
-                )
-
-            continue
-
-        # ----------------------------------------------------
-        # Relevance
-        # ----------------------------------------------------
-
-        relevant, reason = check_relevance(
-            text_value
-        )
-
-        if not relevant:
-
-            reject_reasons[reason] = (
-                reject_reasons.get(
-                    reason,
-                    0
-                ) + 1
-            )
-
-            if SHOW_FILTER_DIAGNOSTICS:
-
-                print(
-                    f"[FILTERED] {title[:100]} | "
-                    f"{reason}"
-                )
-
-            continue
-
-        relevant_count += 1
-
-        # ----------------------------------------------------
-        # Identify stock
-        # ----------------------------------------------------
-
-        symbol = identify_stock_fast(
-            item,
-            lookup
-        )
-
-        if not symbol:
-
-            reason = "Stock/company not identified"
-
-            reject_reasons[reason] = (
-                reject_reasons.get(
-                    reason,
-                    0
-                ) + 1
-            )
-
-            if SHOW_FILTER_DIAGNOSTICS:
-
-                print(
-                    f"[FILTERED] {title[:100]} | "
-                    f"{reason}"
-                )
-
-            continue
-
-        identified_count += 1
-
-        # ----------------------------------------------------
-        # Score
-        # ----------------------------------------------------
-
-        scoring = score_news(
-            text_value
-        )
-
-        score = scoring["score"]
-
-        # Do not allow very weak news
-        if score < 10:
-
-            reason = (
-                f"Very low impact score ({score})"
-            )
-
-            reject_reasons[reason] = (
-                reject_reasons.get(
-                    reason,
-                    0
-                ) + 1
-            )
-
-            if SHOW_FILTER_DIAGNOSTICS:
-
-                print(
-                    f"[FILTERED] "
-                    f"{symbol} | "
-                    f"{title[:90]} | "
-                    f"{reason}"
-                )
-
-            continue
-
-        # ----------------------------------------------------
-        # Duplicate
-        # ----------------------------------------------------
-
-        key = (
-            symbol,
-            normalize_text(title)
-        )
-
-        if key in seen:
-
-            reason = "Duplicate"
-
-            reject_reasons[reason] = (
-                reject_reasons.get(
-                    reason,
-                    0
-                ) + 1
-            )
-
-            continue
-
-        seen.add(key)
-
-        # ----------------------------------------------------
-        # Summary
-        # ----------------------------------------------------
-
-        summary, why = generate_news_summary(
-            text_value,
-            scoring
-        )
-
-        dt = parse_news_datetime(
-            item
-        )
-
-        candidates.append({
-
-            "symbol": symbol,
-
-            "score": score,
-
-            "title": title,
-
-            "text": text_value,
-
-            "summary": summary,
-
-            "why": why,
-
-            "datetime": dt,
-
-            "positive": scoring[
-                "positive"
-            ],
-
-            "negative": scoring[
-                "negative"
-            ],
-
-            "sentiment": scoring[
-                "sentiment"
-            ],
-
-            "impact": scoring[
-                "impact"
-            ],
-        })
-
-        # ----------------------------------------------------
-        # Progress
-        # ----------------------------------------------------
-
-        if (
-            index % 100 == 0
-            or index == len(processed)
-        ):
-
-            print(
-                f"Processed "
-                f"{index}/{len(processed)} | "
-                f"Relevant: {relevant_count} | "
-                f"Identified: {identified_count} | "
-                f"Candidates: {len(candidates)}"
-            )
-
-    # --------------------------------------------------------
-    # Sort
-    # --------------------------------------------------------
-
-    candidates.sort(
-        key=lambda x: x["score"],
-        reverse=True
-    )
-
-    print(
-        "\n----- NSE PROCESSING COMPLETE -----"
-    )
-
-    print(
-        "Fresh:",
-        fresh_count
-    )
-
-    print(
-        "Relevant:",
-        relevant_count
-    )
-
-    print(
-        "Identified:",
-        identified_count
-    )
-
-    print(
-        "Candidates:",
-        len(candidates)
-    )
-
-    # --------------------------------------------------------
-    # Rejection report
-    # --------------------------------------------------------
-
-    if reject_reasons:
-
-        print(
-            "\n----- FILTER REPORT -----"
-        )
-
-        for reason, count in sorted(
-            reject_reasons.items(),
-            key=lambda x: x[1],
-            reverse=True
-        ):
-
-            print(
-                f"{reason}: {count}"
-            )
-
-    # --------------------------------------------------------
-    # Price check limit
-    # --------------------------------------------------------
-
-    candidates = candidates[
-        :MAX_PRICE_CHECKS
-    ]
-
-    print(
-        f"\nCandidates sent for "
-        f"price check: {len(candidates)}"
-    )
-
-    return candidates
+    return {
+        "raw_score": max(score, 0),
+        "matched": list(dict.fromkeys(matched)),
+        "negative": list(dict.fromkeys(negative)),
+        "routine": list(dict.fromkeys(routine)),
+    }
 
 
 # ============================================================
-# YAHOO PRICE
+# PRICE DATA
 # ============================================================
 
 def get_yahoo_price(symbol):
 
     if symbol in PRICE_CACHE:
+        return PRICE_CACHE[symbol]
 
-        return PRICE_CACHE[
-            symbol
-        ]
-
-    url = YAHOO_CHART.format(
-        symbol
-    )
+    url = YAHOO_CHART.format(symbol)
 
     try:
 
@@ -1591,22 +972,18 @@ def get_yahoo_price(symbol):
             url,
             params={
                 "range": "2d",
-                "interval": "1d",
+                "interval": "1d"
             },
             headers={
                 "User-Agent":
-                    HEADERS[
-                        "User-Agent"
-                    ]
+                    HEADERS["User-Agent"]
             },
             timeout=8
         )
 
         if response.status_code != 200:
 
-            PRICE_CACHE[
-                symbol
-            ] = None
+            PRICE_CACHE[symbol] = None
 
             return None
 
@@ -1620,9 +997,7 @@ def get_yahoo_price(symbol):
 
         if not result:
 
-            PRICE_CACHE[
-                symbol
-            ] = None
+            PRICE_CACHE[symbol] = None
 
             return None
 
@@ -1643,9 +1018,7 @@ def get_yahoo_price(symbol):
 
         if price is None:
 
-            PRICE_CACHE[
-                symbol
-            ] = None
+            PRICE_CACHE[symbol] = None
 
             return None
 
@@ -1654,263 +1027,457 @@ def get_yahoo_price(symbol):
         if previous_close:
 
             change_pct = (
-                (
-                    price
-                    - previous_close
-                )
+                (price - previous_close)
                 / previous_close
             ) * 100
 
         result_data = {
             "price": price,
-            "change_pct": change_pct,
+            "change_pct": change_pct
         }
 
-        PRICE_CACHE[
-            symbol
-        ] = result_data
+        PRICE_CACHE[symbol] = result_data
 
         return result_data
 
     except Exception as e:
 
         print(
-            f"Yahoo error {symbol}: "
-            f"{type(e).__name__}"
+            f"Yahoo error {symbol}:",
+            type(e).__name__
         )
 
-        PRICE_CACHE[
-            symbol
-        ] = None
+        PRICE_CACHE[symbol] = None
 
         return None
 
 
 # ============================================================
-# FINAL RANKING
+# PRICE CONFIRMATION
 # ============================================================
 
-def rank_candidates(
-    candidates
+def add_price_score(candidate):
+
+    price_data = get_yahoo_price(
+        candidate["symbol"]
+    )
+
+    candidate["price"] = None
+    candidate["change_pct"] = None
+    candidate["price_score"] = 0
+
+    if not price_data:
+        return candidate
+
+    price = price_data["price"]
+    change = price_data["change_pct"]
+
+    candidate["price"] = price
+    candidate["change_pct"] = change
+
+    if change is None:
+        return candidate
+
+    # Positive price reaction
+    if change >= 5:
+
+        candidate["price_score"] = 12
+
+    elif change >= 3:
+
+        candidate["price_score"] = 10
+
+    elif change >= 2:
+
+        candidate["price_score"] = 8
+
+    elif change >= 1:
+
+        candidate["price_score"] = 5
+
+    elif change > 0:
+
+        candidate["price_score"] = 2
+
+    # Negative reaction
+    elif change <= -5:
+
+        candidate["price_score"] = -12
+
+    elif change <= -3:
+
+        candidate["price_score"] = -8
+
+    elif change < 0:
+
+        candidate["price_score"] = -3
+
+    return candidate
+
+
+# ============================================================
+# BUILD CANDIDATES
+# ============================================================
+
+def process_announcements(
+    records,
+    stocks
 ):
 
     print(
-        "\n----- PRICE CHECK -----"
+        f"\nProcessing {len(records)} "
+        "NSE announcements..."
     )
 
-    final = []
+    lookup = build_company_lookup(
+        stocks
+    )
+
+    fresh_count = 0
+    relevant_count = 0
+    identified_count = 0
+    candidate_count = 0
+
+    stale_count = 0
+    unidentified_count = 0
+
+    candidates = []
+
+    seen = set()
+
+    # --------------------------------------------------------
+    # STEP 1: Fresh announcements
+    # --------------------------------------------------------
+
+    processed = []
+
+    for item in records:
+
+        if not isinstance(item, dict):
+            continue
+
+        dt = parse_news_datetime(item)
+
+        if not is_fresh_news(item):
+
+            stale_count += 1
+
+            continue
+
+        fresh_count += 1
+
+        processed.append(
+            (
+                dt
+                if dt
+                else datetime.min.replace(
+                    tzinfo=IST
+                ),
+                item
+            )
+        )
+
+    processed.sort(
+        key=lambda x: x[0],
+        reverse=True
+    )
+
+    # --------------------------------------------------------
+    # STEP 2: Analyse
+    # --------------------------------------------------------
+
+    for _, item in processed:
+
+        text = announcement_text(item)
+
+        if not text:
+            continue
+
+        scoring = calculate_news_score(
+            text
+        )
+
+        raw_score = scoring["raw_score"]
+
+        # We do not completely reject weak news here.
+        # Ranking/fallback happens later.
+        if raw_score <= 0:
+            continue
+
+        relevant_count += 1
+
+        symbol = identify_stock_fast(
+            item,
+            stocks,
+            lookup
+        )
+
+        if not symbol:
+
+            unidentified_count += 1
+
+            continue
+
+        identified_count += 1
+
+        dt = parse_news_datetime(item)
+
+        title = clean_text(
+            item.get("subject")
+            or item.get("desc")
+            or item.get("headline")
+            or text[:180]
+        )
+
+        summary = build_news_summary(
+            item
+        )
+
+        # Duplicate protection
+        duplicate_key = (
+            symbol,
+            normalize_text(title)
+        )
+
+        if duplicate_key in seen:
+            continue
+
+        seen.add(duplicate_key)
+
+        candidate = {
+            "symbol": symbol,
+            "title": title,
+            "summary": summary,
+            "datetime": dt,
+
+            "base_score": min(
+                raw_score,
+                88
+            ),
+
+            "positive": scoring[
+                "matched"
+            ],
+
+            "negative": scoring[
+                "negative"
+            ],
+
+            "routine": scoring[
+                "routine"
+            ],
+
+            "price": None,
+            "change_pct": None,
+            "price_score": 0,
+        }
+
+        candidates.append(candidate)
+
+        candidate_count += 1
+
+    print(
+        "\n----- NSE PROCESSING COMPLETE -----"
+    )
+
+    print("Fresh:", fresh_count)
+    print("Stale:", stale_count)
+    print("Relevant:", relevant_count)
+    print("Identified:", identified_count)
+    print("Unidentified:", unidentified_count)
+    print("Candidates:", candidate_count)
+
+    # --------------------------------------------------------
+    # Initial ranking before price
+    # --------------------------------------------------------
+
+    candidates.sort(
+        key=lambda x: x["base_score"],
+        reverse=True
+    )
+
+    candidates = candidates[
+        :MAX_PRICE_CHECKS
+    ]
+
+    print(
+        "Candidates sent for price check:",
+        len(candidates)
+    )
+
+    # --------------------------------------------------------
+    # Price confirmation
+    # --------------------------------------------------------
 
     for index, candidate in enumerate(
         candidates,
         start=1
     ):
 
-        symbol = candidate[
-            "symbol"
-        ]
-
         print(
             f"Price check "
             f"{index}/{len(candidates)}: "
-            f"{symbol}"
+            f"{candidate['symbol']}"
         )
 
-        price_data = get_yahoo_price(
-            symbol
+        add_price_score(candidate)
+
+        candidate["final_score"] = min(
+            100,
+            max(
+                0,
+                candidate["base_score"]
+                + candidate["price_score"]
+            )
         )
 
-        if price_data:
+        # Negative news gets an additional penalty
+        if candidate["negative"]:
 
-            candidate[
-                "price"
-            ] = price_data[
-                "price"
-            ]
+            candidate["final_score"] = max(
+                0,
+                candidate["final_score"] - 15
+            )
 
-            candidate[
-                "change_pct"
-            ] = price_data[
-                "change_pct"
-            ]
+        # Routine news gets additional penalty
+        if candidate["routine"]:
 
-        else:
+            candidate["final_score"] = max(
+                0,
+                candidate["final_score"] - 10
+            )
 
-            candidate[
-                "price"
-            ] = None
-
-            candidate[
-                "change_pct"
-            ] = None
-
-        # ----------------------------------------------------
-        # Price confirmation
-        # ----------------------------------------------------
-
-        price_change = candidate[
-            "change_pct"
-        ]
-
-        if price_change is not None:
-
-            if price_change >= 2:
-
-                candidate[
-                    "score"
-                ] += 12
-
-            elif price_change >= 1:
-
-                candidate[
-                    "score"
-                ] += 7
-
-            elif price_change > 0:
-
-                candidate[
-                    "score"
-                ] += 3
-
-            elif price_change < -3:
-
-                candidate[
-                    "score"
-                ] -= 8
-
-        # Negative news penalty
-        if candidate[
-            "negative"
-        ]:
-
-            candidate[
-                "score"
-            ] -= 15
-
-        final.append(
-            candidate
-        )
-
-    final.sort(
-        key=lambda x: x["score"],
+    candidates.sort(
+        key=lambda x: (
+            x["final_score"],
+            x["price_score"],
+            x["base_score"]
+        ),
         reverse=True
     )
 
-    return final[
-        :MAX_FINAL_STOCKS
+    return candidates
+
+
+# ============================================================
+# SMART FALLBACK SELECTION
+# ============================================================
+
+def select_final_candidates(
+    candidates
+):
+
+    if not candidates:
+        return []
+
+    # --------------------------------------------------------
+    # Tier 1: Very strong
+    # --------------------------------------------------------
+
+    tier1 = [
+        x for x in candidates
+        if x["final_score"] >= 75
     ]
 
+    if tier1:
 
-# ============================================================
-# GOOGLE NEWS
-# ============================================================
-
-GOOGLE_QUERIES = [
-    "Indian stocks order win contract company shares",
-    "Indian stocks acquisition merger stake company shares",
-    "Indian stocks fundraising QIP preferential issue company",
-    "Indian stocks expansion capacity plant company",
-    "Indian stocks regulatory approval company shares",
-    "Indian stocks results business update company shares",
-    "Indian stocks promoter stake block deal company",
-    "Indian stocks positive negative corporate news",
-]
-
-
-def get_google_news():
-
-    print(
-        "\n----- GOOGLE NEWS -----"
-    )
-
-    all_items = []
-
-    for query in GOOGLE_QUERIES:
-
-        url = (
-            "https://news.google.com/rss/search?q="
-            + quote_plus(query)
-            + "&hl=en-IN&gl=IN&ceid=IN:en"
+        print(
+            "Tier 1 selected:",
+            len(tier1)
         )
 
-        try:
+        return tier1[
+            :MAX_FINAL_STOCKS
+        ]
 
-            response = requests.get(
-                url,
-                headers={
-                    "User-Agent":
-                        HEADERS[
-                            "User-Agent"
-                        ]
-                },
-                timeout=REQUEST_TIMEOUT
-            )
+    # --------------------------------------------------------
+    # Tier 2: Strong / Good
+    # --------------------------------------------------------
 
-            if response.status_code != 200:
-                continue
+    tier2 = [
+        x for x in candidates
+        if x["final_score"] >= 60
+    ]
 
-            root = ET.fromstring(
-                response.content
-            )
+    if tier2:
 
-            for item in root.findall(
-                ".//item"
-            ):
+        print(
+            "Tier 1 empty -> Tier 2 selected:",
+            len(tier2)
+        )
 
-                title = (
-                    item.findtext(
-                        "title"
-                    )
-                    or ""
-                )
+        return tier2[
+            :MAX_FINAL_STOCKS
+        ]
 
-                link = (
-                    item.findtext(
-                        "link"
-                    )
-                    or ""
-                )
+    # --------------------------------------------------------
+    # Tier 3: Acceptable
+    # --------------------------------------------------------
 
-                pub_date = (
-                    item.findtext(
-                        "pubDate"
-                    )
-                    or ""
-                )
+    tier3 = [
+        x for x in candidates
+        if x["final_score"] >= 50
+    ]
 
-                all_items.append({
+    if tier3:
 
-                    "title":
-                        clean_text(title),
+        print(
+            "Tier 2 empty -> Tier 3 selected:",
+            len(tier3)
+        )
 
-                    "link":
-                        link,
+        return tier3[
+            :MAX_FINAL_STOCKS
+        ]
 
-                    "date":
-                        pub_date,
-                })
+    # --------------------------------------------------------
+    # FINAL FALLBACK
+    #
+    # Never intentionally return zero if we have a usable
+    # positive candidate.
+    # --------------------------------------------------------
 
-        except Exception as e:
+    usable = [
+        x for x in candidates
+        if x["final_score"] > 0
+    ]
 
-            print(
-                "Google News error:",
-                type(e).__name__
-            )
+    if usable:
 
-    print(
-        "Google News articles collected:",
-        len(all_items)
+        print(
+            "Strict tiers empty -> "
+            "Best available candidates selected:",
+            len(usable)
+        )
+
+        return usable[
+            :MAX_FINAL_STOCKS
+        ]
+
+    return []
+
+
+# ============================================================
+# NSE VERIFICATION LINK
+# ============================================================
+
+def nse_verification_link(symbol):
+
+    return (
+        "https://www.nseindia.com/"
+        "companies-listing/"
+        "corporate-filings-announcements"
+        "?symbol="
+        + quote_plus(symbol)
+        + "&tabIndex=equity"
     )
-
-    return all_items
 
 
 # ============================================================
 # TELEGRAM
 # ============================================================
 
-def send_telegram(
-    message
-):
+def send_telegram(message):
 
     token = os.getenv(
         "TELEGRAM_BOT_TOKEN"
@@ -1937,17 +1504,10 @@ def send_telegram(
         response = requests.post(
             url,
             data={
-                "chat_id":
-                    chat_id,
-
-                "text":
-                    message,
-
-                "parse_mode":
-                    "HTML",
-
-                "disable_web_page_preview":
-                    True,
+                "chat_id": chat_id,
+                "text": message,
+                "parse_mode": "HTML",
+                "disable_web_page_preview": True,
             },
             timeout=REQUEST_TIMEOUT
         )
@@ -1971,7 +1531,8 @@ def send_telegram(
 
         print(
             "Telegram error:",
-            type(e).__name__
+            type(e).__name__,
+            str(e)
         )
 
         return False
@@ -1982,7 +1543,8 @@ def send_telegram(
 # ============================================================
 
 def build_message(
-    final_candidates
+    final_candidates,
+    data_available=True
 ):
 
     current_time = now_ist().strftime(
@@ -1992,24 +1554,32 @@ def build_message(
     lines = []
 
     lines.append(
-        "<b>🚨 STOCK NEWS ALERT</b>"
+        "<b>🚨 HIGH-IMPACT STOCK NEWS</b>"
     )
 
     lines.append(
-        f"🕒 {current_time} IST"
+        f"🕒 Bot Time: {current_time} IST"
+    )
+
+    lines.append(
+        f"🔎 News Window: Last "
+        f"{MAX_NEWS_AGE_HOURS} Hours"
     )
 
     lines.append("")
 
-    if not final_candidates:
+    if not data_available:
 
         lines.append(
-            "⚠️ No quality stock-moving "
-            "news candidate found."
+            "⚠️ <b>NSE NEWS DATA UNAVAILABLE</b>"
         )
 
         lines.append(
-            "NSE corporate announcements checked."
+            "No fresh verified NSE data was received."
+        )
+
+        lines.append(
+            "Please check the bot/API."
         )
 
         lines.append("")
@@ -2020,7 +1590,26 @@ def build_message(
 
         return "\n".join(lines)
 
-    for i, item in enumerate(
+    if not final_candidates:
+
+        lines.append(
+            "⚠️ No usable positive candidate "
+            "was found in the available NSE data."
+        )
+
+        lines.append(
+            "The bot did not invent or force a stock."
+        )
+
+        lines.append("")
+
+        lines.append(
+            "Made by Prakash Kanki"
+        )
+
+        return "\n".join(lines)
+
+    for index, item in enumerate(
         final_candidates,
         start=1
     ):
@@ -2037,57 +1626,13 @@ def build_message(
             item["summary"]
         )
 
-        why = html.escape(
-            item["why"]
-        )
-
-        score = item["score"]
-
-        sentiment = item[
-            "sentiment"
+        score = item[
+            "final_score"
         ]
 
-        impact = item[
-            "impact"
-        ]
-
-        # ----------------------------------------------------
-        # Sentiment icon
-        # ----------------------------------------------------
-
-        if sentiment == "POSITIVE":
-
-            sentiment_icon = "🟢"
-
-        elif sentiment == "NEGATIVE":
-
-            sentiment_icon = "🔴"
-
-        else:
-
-            sentiment_icon = "🟡"
-
-        # ----------------------------------------------------
-        # News date
-        # ----------------------------------------------------
-
-        news_dt = item.get(
+        dt = item[
             "datetime"
-        )
-
-        if news_dt:
-
-            news_time = news_dt.strftime(
-                "%d-%m-%Y %H:%M"
-            )
-
-        else:
-
-            news_time = "N/A"
-
-        # ----------------------------------------------------
-        # Price
-        # ----------------------------------------------------
+        ]
 
         price = item.get(
             "price"
@@ -2097,105 +1642,146 @@ def build_message(
             "change_pct"
         )
 
+        # ----------------------------------------------------
+        # Confidence label
+        # ----------------------------------------------------
+
+        if score >= 75:
+
+            confidence = "🔥 VERY HIGH"
+
+        elif score >= 60:
+
+            confidence = "🟢 HIGH"
+
+        elif score >= 50:
+
+            confidence = "🟡 GOOD"
+
+        else:
+
+            confidence = "⚠️ LOWER"
+
         lines.append(
-            f"<b>{i}. {symbol}</b>"
+            f"<b>{index}. {symbol}</b>"
         )
 
         lines.append(
-            f"{sentiment_icon} "
-            f"<b>{sentiment}</b> | "
-            f"Impact: <b>{impact}</b>"
+            f"🎯 Impact Score: "
+            f"<b>{score}/100</b> "
+            f"{confidence}"
         )
 
+        # News time
+        if dt:
+
+            news_time = dt.strftime(
+                "%d-%m-%Y %H:%M:%S"
+            )
+
+            lines.append(
+                f"🕒 News Time: "
+                f"{news_time} IST"
+            )
+
+            lines.append(
+                f"⏱ Age: "
+                f"{format_news_age(dt)}"
+            )
+
         lines.append(
-            f"🔥 News Score: <b>{score}</b>"
+            f"📰 <b>{title}</b>"
         )
+
+        if summary:
+
+            # Prevent extremely long Telegram messages
+            if len(summary) > 650:
+
+                summary = (
+                    summary[:647]
+                    + "..."
+                )
+
+            lines.append(
+                f"📝 {summary}"
+            )
 
         if price is not None:
 
             if change_pct is not None:
 
                 lines.append(
-                    f"💰 Price: ₹{price:.2f} "
+                    f"💰 Price: "
+                    f"₹{price:.2f} "
                     f"({change_pct:+.2f}%)"
                 )
 
             else:
 
                 lines.append(
-                    f"💰 Price: ₹{price:.2f}"
+                    f"💰 Price: "
+                    f"₹{price:.2f}"
                 )
-
-        lines.append("")
-
-        # ----------------------------------------------------
-        # ORIGINAL NEWS
-        # ----------------------------------------------------
-
-        lines.append(
-            f"📰 <b>News:</b> {title}"
-        )
-
-        # ----------------------------------------------------
-        # SUMMARY
-        # ----------------------------------------------------
-
-        lines.append(
-            f"📋 <b>Summary:</b> {summary}"
-        )
-
-        # ----------------------------------------------------
-        # WHY IT MATTERS
-        # ----------------------------------------------------
-
-        lines.append(
-            f"🎯 <b>Why it matters:</b> {why}"
-        )
-
-        # ----------------------------------------------------
-        # TRIGGERS
-        # ----------------------------------------------------
 
         if item["positive"]:
 
-            triggers = ", ".join(
-                item["positive"][:5]
+            positive_text = ", ".join(
+                item["positive"][:6]
             )
 
             lines.append(
-                "✅ <b>Triggers:</b> "
+                "🔥 Trigger: "
                 + html.escape(
-                    triggers
+                    positive_text
                 )
             )
 
         if item["negative"]:
 
-            negatives = ", ".join(
-                item["negative"][:3]
+            negative_text = ", ".join(
+                item["negative"][:4]
             )
 
             lines.append(
-                "⚠️ <b>Negative:</b> "
+                "⚠️ Risk: "
                 + html.escape(
-                    negatives
+                    negative_text
                 )
             )
 
-        lines.append(
-            f"🕒 News time: {news_time} IST"
+        if item["routine"]:
+
+            routine_text = ", ".join(
+                item["routine"][:3]
+            )
+
+            lines.append(
+                "ℹ️ Routine element: "
+                + html.escape(
+                    routine_text
+                )
+            )
+
+        verify_url = nse_verification_link(
+            item["symbol"]
         )
 
-        lines.append("")
-
         lines.append(
-            "━━━━━━━━━━━━━━"
+            f'🔗 <a href="{html.escape(verify_url)}">'
+            "Verify Original NSE Filing"
+            "</a>"
         )
 
         lines.append("")
 
     lines.append(
-        "⚠️ News-based watchlist. "
+        "📌 Ranking considers news impact, "
+        "freshness and price reaction."
+    )
+
+    lines.append(
+        "⚠️ Research/watchlist only. "
         "Not investment advice."
     )
 
@@ -2203,7 +1789,24 @@ def build_message(
         "Made by Prakash Kanki"
     )
 
-    return "\n".join(lines)
+    message = "\n".join(lines)
+
+    # Telegram maximum is around 4096 characters.
+    # Keep safe margin.
+    if len(message) > 4000:
+
+        print(
+            "Telegram message too long. "
+            "Trimming..."
+        )
+
+        message = message[:3950]
+
+        message += (
+            "\n\n⚠️ Message trimmed."
+        )
+
+    return message
 
 
 # ============================================================
@@ -2212,38 +1815,48 @@ def build_message(
 
 def main():
 
-    print("=" * 50)
+    print("=" * 60)
 
     print(
-        "STOCK NEWS BOT STARTED"
+        "HIGH-IMPACT STOCK NEWS BOT STARTED"
     )
 
     print(
+        "Current IST:",
         now_ist().isoformat()
     )
 
-    print("=" * 50)
-
-    # --------------------------------------------------------
-    # 1. STOCK LIST
-    # --------------------------------------------------------
-
     print(
-        "\n========== BUILDING CANDIDATES =========="
+        "News window:",
+        MAX_NEWS_AGE_HOURS,
+        "hours"
     )
+
+    print("=" * 60)
+
+    # --------------------------------------------------------
+    # NSE STOCKS
+    # --------------------------------------------------------
 
     stocks = get_nse_symbols()
 
     if not stocks:
 
         print(
-            "No NSE stocks loaded."
+            "ERROR: NSE stock list unavailable."
         )
+
+        message = build_message(
+            [],
+            data_available=False
+        )
+
+        send_telegram(message)
 
         return
 
     # --------------------------------------------------------
-    # 2. NSE NEWS
+    # NSE NEWS
     # --------------------------------------------------------
 
     records = get_nse_announcements()
@@ -2251,13 +1864,20 @@ def main():
     if not records:
 
         print(
-            "No NSE announcements received."
+            "ERROR: NSE announcements unavailable."
         )
+
+        message = build_message(
+            [],
+            data_available=False
+        )
+
+        send_telegram(message)
 
         return
 
     # --------------------------------------------------------
-    # 3. PROCESS
+    # PROCESS
     # --------------------------------------------------------
 
     candidates = process_announcements(
@@ -2265,17 +1885,31 @@ def main():
         stocks
     )
 
-    # --------------------------------------------------------
-    # 4. PRICE CHECK
-    # --------------------------------------------------------
-
-    final_candidates = rank_candidates(
-        candidates
+    print(
+        "\n----- RANKED CANDIDATES -----"
     )
 
+    for item in candidates[:15]:
+
+        print(
+            item["symbol"],
+            "| Impact:",
+            item["final_score"],
+            "| Base:",
+            item["base_score"],
+            "| Price:",
+            item["change_pct"]
+        )
+
     # --------------------------------------------------------
-    # 5. FINAL RESULT
+    # SMART FALLBACK
     # --------------------------------------------------------
+
+    final_candidates = (
+        select_final_candidates(
+            candidates
+        )
+    )
 
     print(
         "\n----- FINAL RESULT -----"
@@ -2291,34 +1925,18 @@ def main():
         print(
             item["symbol"],
             "| Score:",
-            item["score"],
-            "| Sentiment:",
-            item["sentiment"],
-            "| Impact:",
-            item["impact"]
-        )
-
-        print(
-            "  News:",
-            item["title"]
-        )
-
-        print(
-            "  Summary:",
-            item["summary"]
-        )
-
-        print(
-            "  Why:",
-            item["why"]
+            item["final_score"],
+            "| Price:",
+            item["change_pct"]
         )
 
     # --------------------------------------------------------
-    # 6. TELEGRAM
+    # TELEGRAM
     # --------------------------------------------------------
 
     message = build_message(
-        final_candidates
+        final_candidates,
+        data_available=True
     )
 
     print(
@@ -2351,5 +1969,4 @@ def main():
 # ============================================================
 
 if __name__ == "__main__":
-
     main()
